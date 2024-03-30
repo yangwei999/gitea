@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 
+	"github.com/sirupsen/logrus"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/parser"
 	"go.abhg.dev/goldmark/frontmatter"
@@ -23,6 +24,8 @@ func CheckLicense(content string) error {
 	if len(validLicense) == 0 {
 		initConfig()
 	}
+
+	logrus.Errorf("licenses are: %v", validLicense)
 
 	if !validLicense.Has(license) {
 		return errors.New("invalid license")
