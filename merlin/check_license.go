@@ -16,7 +16,7 @@ type FrontMatter struct {
 
 func CheckLicense(content string) error {
 	license, err := parseLicense(content)
-	if license == "" {
+	if err != nil {
 		return err
 	}
 
