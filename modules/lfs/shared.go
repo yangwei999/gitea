@@ -86,6 +86,15 @@ type ObjectResponseWithMultipart struct {
 	Error   *ObjectError                      `json:"error,omitempty"`
 }
 
+type ObjectDirectUrls struct {
+	Objects []*ObjectDirectUrl `json:"objects"`
+}
+
+type ObjectDirectUrl struct {
+	Pointer
+	URL string `json:"url"`
+}
+
 type ObjectResponseActionWithMultipart struct {
 	Parts    []*structs.MultipartObjectPart `json:"parts,omitempty"`
 	Download *structs.MultipartEndpoint     `json:"download,omitempty"`

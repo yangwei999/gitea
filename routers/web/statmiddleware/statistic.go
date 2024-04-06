@@ -200,19 +200,27 @@ func (g *gitContextAdapter) GetRepoLink() string {
 // Middleware functions using the adapted contexts and the unified prepareMessage function
 func GitCloneMessageMiddleware(ctx *context.Context) {
 
-	adaptedCtx := AdaptGitContext(ctx)
-	msg := prepareMessage(adaptedCtx, gitClone, "this message means someone cloned the repository")
+	if setting.MQ != nil {
+		adaptedCtx := AdaptGitContext(ctx)
+		msg := prepareMessage(adaptedCtx, gitClone, "this message means someone cloned the repository")
 
-	if err := messagequeue.Publish(setting.MQ.TopicName, &msg, nil); err != nil {
-		log.Info("internal error of kafka sender: %s", err.Error())
+		if err := messagequeue.Publish(setting.MQ.TopicName, &msg, nil); err != nil {
+			log.Info("internal error of kafka sender: %s", err.Error())
+		}
+	} else {
+		log.Warn("message queue not initialized, skip publish message")
 	}
 }
 
 func WebDownloadMiddleware(ctx *context.APIContext) {
-	adaptedCtx := AdaptAPIContext(ctx)
-	msg := prepareMessage(adaptedCtx, webDownload, "this message means someone downloaded a file from the website")
+	if setting.MQ != nil {
+		adaptedCtx := AdaptAPIContext(ctx)
+		msg := prepareMessage(adaptedCtx, webDownload, "this message means someone downloaded a file from the website")
 
-	if err := messagequeue.Publish(setting.MQ.TopicName, &msg, nil); err != nil {
-		log.Info("internal error of kafka sender: %s", err.Error())
+		if err := messagequeue.Publish(setting.MQ.TopicName, &msg, nil); err != nil {
+			log.Info("internal error of kafka sender: %s", err.Error())
+		}
+	} else {
+		log.Warn("message queue not initialized, skip publish message")
 	}
 }

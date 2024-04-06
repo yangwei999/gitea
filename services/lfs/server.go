@@ -158,6 +158,61 @@ func DownloadHandler(ctx *context.Context) {
 	}
 }
 
+// GetAllLFSObjectDirectDownloadUrls get all lfs object download url of a single repository
+// Steps
+// 1. Authenticate request
+// 2. Collect all lfs pointers in repository
+// 3. Check whether pointer exists
+// 4. translate oid into direct urls
+func GetAllLFSObjectDirectDownloadUrls(ctx *context.Context) {
+	if !setting.LFS.Storage.MinioConfig.ServeDirect {
+		log.Trace("lfs serve direct is disabled. request direct url is not allowed")
+		writeStatus(ctx, http.StatusForbidden)
+		return
+	}
+	rc := getRequestContext(ctx)
+	repository := getAuthenticatedRepository(ctx, rc, false)
+	if repository == nil {
+		log.Trace("Unable to get auth repository")
+		return
+	}
+	contentStore := lfs_module.NewContentStore()
+	//NOTE: Pagination is not considered here.
+	metas, err := git_model.GetLFSMetaObjects(ctx, repository.ID, 0, 0)
+	if err != nil {
+		log.Error("Unable to list repository's LFS MetaObjects for %s/%s. Error: %v", rc.User, rc.Repo, err)
+		writeStatus(ctx, http.StatusInternalServerError)
+		return
+	}
+	var urls []*lfs_module.ObjectDirectUrl
+	for _, meta := range metas {
+		exists, err := contentStore.Exists(meta.Pointer)
+		if err != nil {
+			log.Error("Unable to check whether LFS OID[%s] for %s/%s exist. Error: %v", meta.Pointer.Oid, rc.User, rc.Repo, err)
+			writeStatus(ctx, http.StatusInternalServerError)
+			return
+		} else if exists {
+			u, err := storage.LFS.URL(meta.Pointer.RelativePath(), meta.Pointer.Oid)
+			if err != nil {
+				log.Error("Unable to generate LFS OID[%s] direct url for %s/%s. Error: %v, object will be skipped", meta.Pointer.Oid, rc.User, rc.Repo, err)
+			} else {
+				urls = append(urls, &lfs_module.ObjectDirectUrl{
+					Pointer: meta.Pointer,
+					URL:     u.String(),
+				})
+			}
+		} else {
+			log.Warn("LFS OID[%s] for %s/%s does not existed on backend storage, object will be skipped", meta.Pointer.Oid, rc.User, rc.Repo)
+		}
+	}
+	response := &lfs_module.ObjectDirectUrls{Objects: urls}
+	ctx.Resp.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(ctx.Resp)
+	if err := enc.Encode(response); err != nil {
+		log.Error("Failed to encode representation as json. Error: %v", err)
+	}
+}
+
 func BatchHandlerAdapter(ctx *context.Context) {
 	var br lfs_module.BatchRequest
 	if err := decodeJSON(ctx.Req, &br); err != nil {
