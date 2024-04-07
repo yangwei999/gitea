@@ -471,7 +471,7 @@ func ChangeFiles(ctx *context.APIContext) {
 			return
 		}
 
-		if file.Path == "README.md" {
+		if file.Operation == "update" && file.Path == "README.md" {
 			if err = merlin.CheckLicense(file.ContentBase64); err != nil {
 				ctx.Error(http.StatusUnprocessableEntity, "Invalid license", err)
 				return
