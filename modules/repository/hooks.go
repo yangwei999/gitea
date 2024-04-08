@@ -10,9 +10,12 @@ import (
 	"runtime"
 
 	"code.gitea.io/gitea/modules/git"
+	"code.gitea.io/gitea/modules/repository/configHooks"
 	"code.gitea.io/gitea/modules/setting"
 	"code.gitea.io/gitea/modules/util"
 )
+
+var registry *HookRegistry
 
 func getHookTemplates() (hookNames, hookTpls, giteaHookTpls []string) {
 	hookNames = []string{"pre-receive", "update", "post-receive"}
@@ -74,39 +77,6 @@ done
 `, setting.ScriptType),
 	}
 
-	if setting.CommanMaxFileSize > 0 {
-		hookTpls[0] += fmt.Sprintf(`
-max_size=%d
-
-while read oldrev newrev _; do
-  if [[ "$oldrev" == "0000000000000000000000000000000000000000" ]]; then
-    files=$(git ls-tree --name-only ${newrev})
-    for file in $files; do
-      size=$(git cat-file -s ${newrev}:${file})
-      if [[ ${size} -gt ${max_size} ]]; then
-		    echo "The size of each file should be within $((max_size / 1048576))MB."
-		    exit 1
-	    fi
-	  done
-  else
-    changes=$(git rev-list ${oldrev}..${newrev})
-
-    for commit in ${changes}; do
-      files=$(git diff-tree --no-commit-id --name-only -r ${commit})
-
-      for file in $files; do
-        size=$(git cat-file -s ${commit}:${file})
-        if [[ ${size} -gt ${max_size} ]]; then
-          echo "The size of each file should be within $((max_size / 1048576))MB."
-          exit 1
-        fi
-      done
-    done
-  fi
-done
-`, setting.CommanMaxFileSize)
-	}
-
 	giteaHookTpls = []string{
 		// for pre-receive
 		fmt.Sprintf(`#!/usr/bin/env %s
@@ -145,6 +115,19 @@ func CreateDelegateHooks(repoPath string) (err error) {
 	hookNames, hookTpls, giteaHookTpls := getHookTemplates()
 	hookDir := filepath.Join(repoPath, "hooks")
 
+	checkLicenseHook := &configHooks.CheckLicense{
+		Name:"checkLicense",
+	}
+	fileSizeMaxHook := &configHooks.FileSizeLimit{
+		Name:"fileSizeMax",
+	}
+	registry, err = NewHookRegistry()
+	if err != nil {
+		return err
+	}
+	registry.RegisterHook("pre-receive", checkLicenseHook)
+	registry.RegisterHook("pre-receive", fileSizeMaxHook)
+
 	for i, hookName := range hookNames {
 		oldHookPath := filepath.Join(hookDir, hookName)
 		newHookPath := filepath.Join(hookDir, hookName+".d", "gitea")
@@ -175,6 +158,9 @@ func CreateDelegateHooks(repoPath string) (err error) {
 		if err = ensureExecutable(newHookPath); err != nil {
 			return fmt.Errorf("Unable to set %s executable. Error %w", oldHookPath, err)
 		}
+
+		registry.RunCreateConfigHooks(hookDir, hookName)
+
 	}
 
 	return nil
@@ -240,6 +226,7 @@ func CheckDelegateHooks(repoPath string) ([]string, error) {
 			results = append(results, fmt.Sprintf("new hook file %s does not exist", newHookPath))
 			cont = true
 		}
+		registry.RunCheckConfigPathHooks(results, hookDir, hookName)
 		if cont {
 			continue
 		}
@@ -263,6 +250,7 @@ func CheckDelegateHooks(repoPath string) ([]string, error) {
 		if !checkExecutable(newHookPath) {
 			results = append(results, fmt.Sprintf("new hook file %s is not executable", newHookPath))
 		}
+		registry.RunCheckConfigHooks(results, hookDir, hookName)
 	}
 	return results, nil
 }
