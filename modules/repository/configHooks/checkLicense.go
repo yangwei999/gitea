@@ -36,7 +36,7 @@ while read oldrev newrev _; do
 	files=$(git diff --name-only $oldrev $newrev)
   if echo "$files" | grep -q "README.md"; then
 		readme_content=$(git show $newrev:README.md)
-		license=$(echo "$readme_content" | grep -oP "license=\[\K[^]]+")
+		license=$(echo "$readme_content" | grep -oP "license:\s*\K\S+")
 		if [[ " ${valid_licenses[@]} " =~ " ${license} " ]]; then
 				echo "License field is valid. Proceeding with the push."
 		else
