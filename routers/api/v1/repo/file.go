@@ -420,6 +420,37 @@ func base64Reader(s string) (io.Reader, error) {
 	return bytes.NewReader(b), nil
 }
 
+// FetchUploadModes to determine whether each input file should be uploaded as a regular git blob or as git LFS blob.
+func FetchUploadModes(ctx *context.APIContext) {
+	apiOpts := web.GetForm(ctx).(*api.PreUploadFilesOption)
+
+	if apiOpts.BranchName == "" {
+		apiOpts.BranchName = ctx.Repo.Repository.DefaultBranch
+	}
+
+	var files []files_service.PreUploadFile
+	for _, file := range apiOpts.Files {
+		fetchFileModel := files_service.PreUploadFile{
+			SHA:      file.SHA,
+			Size:     file.Size,
+			TreePath: file.Path,
+		}
+		files = append(files, fetchFileModel)
+	}
+
+	opts := &files_service.PreUploadFileInf{
+		Files:  files,
+		Branch: apiOpts.BranchName,
+	}
+
+	if filesResponse, err := files_service.FetchFileType(ctx, ctx.Repo.Repository, opts); err != nil {
+		log.Error("fail to fetching the type of the preUpload file %v", err)
+		ctx.Error(http.StatusInternalServerError, "FetchUploadModes", err)
+	} else {
+		ctx.JSON(http.StatusOK, filesResponse)
+	}
+}
+
 // ChangeFiles handles API call for modifying multiple files
 func ChangeFiles(ctx *context.APIContext) {
 	// swagger:operation POST /repos/{owner}/{repo}/contents repository repoChangeFiles

@@ -17,6 +17,11 @@ import (
 	"code.gitea.io/gitea/modules/util"
 )
 
+const (
+	typeLFS     = "lfs"
+	typeRegular = "regular"
+)
+
 func GetFilesResponseFromCommit(ctx context.Context, repo *repo_model.Repository, commit *git.Commit, branch string, treeNames []string) (*api.FilesResponse, error) {
 	files := []*api.ContentsResponse{}
 	for _, file := range treeNames {
@@ -44,6 +49,39 @@ func GetFileResponseFromCommit(ctx context.Context, repo *repo_model.Repository,
 		Verification: verification,
 	}
 	return fileResponse, nil
+}
+
+// GetPreUploadFileResponse constructs a PreUploadFilesResponse for preUpload files
+func GetPreUploadFileResponse(attributeMap map[string]map[string]string, files []PreUploadFile) (*api.PreUploadFilesResponse, error) {
+	var contentsResponses []*api.ContentsResponse
+
+	for _, file := range files {
+		// Check if the file meets the conditions for being classified as "lfs"
+		// Condition 1: Exists in the .gitattributes with filter "lfs"
+		// OR
+		// Condition 2: File size is greater than 5MB
+		// Add to ContentsResponse with Type "lfs"
+		info, exists := attributeMap[file.TreePath]
+		if (file.Size > 5*1024*1024) || (exists && info["filter"] == "lfs") {
+			contentsResponses = append(contentsResponses, &api.ContentsResponse{
+				Path: file.TreePath,
+				SHA:  file.SHA,
+				Size: file.Size,
+				Type: typeLFS,
+			})
+		} else {
+			// If neither condition is met, add as "regular"
+			contentsResponses = append(contentsResponses, &api.ContentsResponse{
+				Path: file.TreePath,
+				SHA:  file.SHA,
+				Size: file.Size,
+				Type: typeRegular,
+			})
+		}
+	}
+
+	// Construct the final response with the files prepared
+	return &api.PreUploadFilesResponse{Files: contentsResponses}, nil
 }
 
 // constructs a FileResponse with the file at the index from FilesResponse

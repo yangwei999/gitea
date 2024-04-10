@@ -81,6 +81,25 @@ type ChangeFileOperation struct {
 	FromPath string `json:"from_path"`
 }
 
+type PreUploadFileInfo struct {
+	SHA  string `json:"sha"  binding:"Required"`
+	Size int64  `json:"size"`
+	Path string `json:"path" binding:"Required"`
+}
+
+// PreUploadFilesOption Fetch Upload Modes
+type PreUploadFilesOption struct {
+	FileOptions
+	// list of file metadata
+	// required: true
+	Files []*PreUploadFileInfo `json:"files" binding:"Required"`
+}
+
+// Branch returns branch name
+func (o *PreUploadFilesOption) Branch() string {
+	return o.FileOptions.BranchName
+}
+
 // ChangeFilesOptions options for creating, updating or deleting multiple files
 // Note: `author` and `committer` are optional (if only one is given, it will be used for the other, otherwise the authenticated user will be used)
 type ChangeFilesOptions struct {
@@ -162,6 +181,11 @@ type FilesResponse struct {
 	Files        []*ContentsResponse        `json:"files"`
 	Commit       *FileCommitResponse        `json:"commit"`
 	Verification *PayloadCommitVerification `json:"verification"`
+}
+
+// PreUploadFilesResponse contains information about multiple preUpload files from a repo
+type PreUploadFilesResponse struct {
+	Files []*ContentsResponse `json:"files"`
 }
 
 // FileDeleteResponse contains information about a repo's file that was deleted

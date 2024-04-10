@@ -1225,6 +1225,7 @@ func Routes() *web.Route {
 						m.Delete("", bind(api.DeleteFileOptions{}), reqRepoBranchWriter, mustNotBeArchived, repo.DeleteFile)
 					}, reqToken())
 				}, reqRepoReader(unit.TypeCode))
+				m.Get("/preUpload", reqToken(), bind(api.PreUploadFilesOption{}), reqRepoBranchWriter, mustNotBeArchived, repo.FetchUploadModes)
 				m.Get("/signing-key.gpg", misc.SigningKey)
 				m.Group("/topics", func() {
 					m.Combo("").Get(repo.ListTopics).

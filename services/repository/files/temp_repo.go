@@ -80,6 +80,42 @@ func (t *TemporaryUploadRepository) Clone(branch string) error {
 	return nil
 }
 
+// FullyClone clone repo to local path, this method does not save space, but it's useful for fetching file attribute
+func (t *TemporaryUploadRepository) FullyClone(branch string) error {
+	err := os.Setenv("GIT_LFS_SKIP_SMUDGE", "1")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := os.Unsetenv("GIT_LFS_SKIP_SMUDGE")
+		if err != nil {
+
+		}
+	}() // Ensure we clean up after ourselves
+	if _, _, err := git.NewCommand(t.ctx, "clone", "-b").AddDynamicArguments(branch, t.repo.RepoPath(), t.basePath).RunStdString(nil); err != nil {
+		stderr := err.Error()
+		if matched, _ := regexp.MatchString(".*Remote branch .* not found in upstream origin.*", stderr); matched {
+			return git.ErrBranchNotExist{
+				Name: branch,
+			}
+		} else if matched, _ := regexp.MatchString(".* repository .* does not exist.*", stderr); matched {
+			return repo_model.ErrRepoNotExist{
+				ID:        t.repo.ID,
+				UID:       t.repo.OwnerID,
+				OwnerName: t.repo.OwnerName,
+				Name:      t.repo.Name,
+			}
+		}
+		return fmt.Errorf("Clone: %w %s", err, stderr)
+	}
+	gitRepo, err := git.OpenRepository(t.ctx, t.basePath)
+	if err != nil {
+		return err
+	}
+	t.gitRepo = gitRepo
+	return nil
+}
+
 // Init the repository
 func (t *TemporaryUploadRepository) Init() error {
 	if err := git.InitRepository(t.ctx, t.basePath, false); err != nil {
