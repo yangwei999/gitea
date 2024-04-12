@@ -183,14 +183,14 @@ type FilesResponse struct {
 	Verification *PayloadCommitVerification `json:"verification"`
 }
 
-// PreUploadFilesResponse contains information about multiple preUpload files from a repo
-type PreUploadFilesResponse struct {
-	Files []*ContentsResponse `json:"files"`
-}
-
 // FileDeleteResponse contains information about a repo's file that was deleted
 type FileDeleteResponse struct {
 	Content      any                        `json:"content"` // to be set to nil
 	Commit       *FileCommitResponse        `json:"commit"`
 	Verification *PayloadCommitVerification `json:"verification"`
+}
+
+// PreUploadFilesResponse contains information about multiple preUpload files from a repo
+type PreUploadFilesResponse struct {
+	Files []*ContentsResponse `json:"files"`
 }

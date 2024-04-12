@@ -6,9 +6,12 @@ package files
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -39,6 +42,16 @@ type TemporaryUploadRepository struct {
 // NewTemporaryUploadRepository creates a new temporary upload repository
 func NewTemporaryUploadRepository(ctx context.Context, repo *repo_model.Repository) (*TemporaryUploadRepository, error) {
 	basePath, err := repo_module.CreateTemporaryPath("upload")
+	if err != nil {
+		return nil, err
+	}
+	t := &TemporaryUploadRepository{ctx: ctx, repo: repo, basePath: basePath}
+	return t, nil
+}
+
+// NewTemporaryUploadRepository creates a new temporary upload repository
+func NewTemporaryCheckAttributeRepository(ctx context.Context, repo *repo_model.Repository) (*TemporaryUploadRepository, error) {
+	basePath, err := repo_module.CreateTemporaryPath("check")
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +214,32 @@ func (t *TemporaryUploadRepository) HashObject(content io.Reader) (string, error
 		}); err != nil {
 		log.Error("Unable to hash-object to temporary repo: %s (%s) Error: %v\nstdout: %s\nstderr: %s", t.repo.FullName(), t.basePath, err, stdOut.String(), stdErr.String())
 		return "", fmt.Errorf("Unable to hash-object to temporary repo: %s Error: %w\nstdout: %s\nstderr: %s", t.repo.FullName(), err, stdOut.String(), stdErr.String())
+	}
+
+	return strings.TrimSpace(stdOut.String()), nil
+}
+
+func (t *TemporaryUploadRepository) HashBase64Object(base64Content string) (string, error) {
+	decodedContent, err := base64.StdEncoding.DecodeString(base64Content)
+	if err != nil {
+		return "", fmt.Errorf("unable to decode base64 content: %w", err)
+	}
+
+	contentReader := bytes.NewReader(decodedContent)
+	stdOut := new(bytes.Buffer)
+	stdErr := new(bytes.Buffer)
+
+	cmd := git.NewCommand(t.ctx, "hash-object", "-w", "--stdin")
+	opts := &git.RunOpts{
+		Dir:    t.basePath,
+		Stdin:  contentReader,
+		Stdout: stdOut,
+		Stderr: stdErr,
+	}
+
+	if err := cmd.Run(opts); err != nil {
+		return "", fmt.Errorf("unable to hash-object to temporary repo: %s Error: %w\nstdout: %s\nstderr: %s",
+			t.repo.FullName(), err, stdOut.String(), stdErr.String())
 	}
 
 	return strings.TrimSpace(stdOut.String()), nil
@@ -428,4 +467,55 @@ func (t *TemporaryUploadRepository) GetCommit(commitID string) (*git.Commit, err
 		return nil, fmt.Errorf("repository has not been cloned")
 	}
 	return t.gitRepo.GetCommit(commitID)
+}
+
+// ModifyAttributeFile attempts to modify the .gitattributes file for the specified file.
+func (t *TemporaryUploadRepository) ModifyAttributeFile(filePath, branchName string) (string, error) {
+	fileName := filepath.Base(filePath) // Extract the file name from the file path
+
+	// Construct the path to the .gitattributes file.
+	gitAttributesPath := filepath.Join(t.basePath, ".gitattributes")
+	if _, err := os.Stat(gitAttributesPath); errors.Is(err, os.ErrNotExist) {
+		_, err := os.Create(gitAttributesPath)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Read the contents of the .gitattributes file.
+	content, err := os.ReadFile(gitAttributesPath)
+	if err != nil {
+		return "", err // Error reading .gitattributes
+	}
+
+	lines := strings.Split(string(content), "\n")
+	patternFound := false
+	for _, line := range lines {
+		// Split the line into pattern and attributes
+		parts := strings.Fields(line)
+		if len(parts) > 0 {
+			pattern := parts[0]
+			// Check if the pattern matches the fileName.
+			if matched, _ := filepath.Match(pattern, fileName); matched {
+				patternFound = true
+				break
+			}
+		}
+	}
+
+	if !patternFound {
+		// If the fileName pattern is not specified, add it with LFS attributes to the end of .gitattributes
+		lfsAttributes := fileName + " filter=lfs diff=lfs merge=lfs -text"
+		newContent := strings.TrimSpace(string(content)) + "\n" + lfsAttributes + "\n"
+		err = os.WriteFile(gitAttributesPath, []byte(newContent), 0644)
+		if err != nil {
+			return "", err // Error writing to .gitattributes
+		}
+
+		// Return base64 encoded content of .gitattributes after modification
+		return base64.StdEncoding.EncodeToString([]byte(newContent)), nil
+	}
+
+	// FileName pattern is already specified in .gitattributes, no modification needed
+	return "", nil
 }

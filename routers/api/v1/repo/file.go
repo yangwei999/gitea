@@ -451,6 +451,112 @@ func FetchUploadModes(ctx *context.APIContext) {
 	}
 }
 
+// ChangeFilesAndGitAttribute handles API call for modifying multiple files, especially for openMind use scenario.
+func ChangeFilesAndGitAttribute(ctx *context.APIContext) {
+	// swagger:operation POST /repos/{owner}/{repo}/upload repository repoChangeFiles
+	// ---
+	// summary: Modify multiple files in a repository
+	// consumes:
+	// - application/json
+	// produces:
+	// - application/json
+	// parameters:
+	// - name: owner
+	//   in: path
+	//   description: owner of the repo
+	//   type: string
+	//   required: true
+	// - name: repo
+	//   in: path
+	//   description: name of the repo
+	//   type: string
+	//   required: true
+	// - name: body
+	//   in: body
+	//   required: true
+	//   schema:
+	//     "$ref": "#/definitions/ChangeFilesOptions"
+	// responses:
+	//   "201":
+	//     "$ref": "#/responses/FilesResponse"
+	//   "403":
+	//     "$ref": "#/responses/error"
+	//   "404":
+	//     "$ref": "#/responses/notFound"
+	//   "422":
+	//     "$ref": "#/responses/error"
+	//   "423":
+	//     "$ref": "#/responses/repoArchivedError"
+
+	apiOpts := web.GetForm(ctx).(*api.ChangeFilesOptions)
+
+	if apiOpts.BranchName == "" {
+		apiOpts.BranchName = ctx.Repo.Repository.DefaultBranch
+	}
+
+	var files []*files_service.ChangeRepoFile
+	for _, file := range apiOpts.Files {
+		contentReader, err := base64Reader(file.ContentBase64)
+		if err != nil {
+			ctx.Error(http.StatusUnprocessableEntity, "Invalid base64 content", err)
+			return
+		}
+
+		if file.Operation == "update" && file.Path == "README.md" {
+			if err = merlin.CheckLicense(file.ContentBase64); err != nil {
+				ctx.Error(http.StatusUnprocessableEntity, "Invalid license", err)
+				return
+			}
+		}
+
+		changeRepoFile := &files_service.ChangeRepoFile{
+			Operation:     file.Operation,
+			TreePath:      file.Path,
+			FromTreePath:  file.FromPath,
+			ContentReader: contentReader,
+			SHA:           file.SHA,
+		}
+		files = append(files, changeRepoFile)
+	}
+
+	opts := &files_service.ChangeRepoFilesOptions{
+		Files:     files,
+		Message:   apiOpts.Message,
+		OldBranch: apiOpts.BranchName,
+		NewBranch: apiOpts.NewBranchName,
+		Committer: &files_service.IdentityOptions{
+			Name:  apiOpts.Committer.Name,
+			Email: apiOpts.Committer.Email,
+		},
+		Author: &files_service.IdentityOptions{
+			Name:  apiOpts.Author.Name,
+			Email: apiOpts.Author.Email,
+		},
+		Dates: &files_service.CommitDateOptions{
+			Author:    apiOpts.Dates.Author,
+			Committer: apiOpts.Dates.Committer,
+		},
+		Signoff: apiOpts.Signoff,
+	}
+	if opts.Dates.Author.IsZero() {
+		opts.Dates.Author = time.Now()
+	}
+	if opts.Dates.Committer.IsZero() {
+		opts.Dates.Committer = time.Now()
+	}
+
+	if opts.Message == "" {
+		opts.Message = changeFilesCommitMessage(ctx, files)
+	}
+
+	//to update .gitattribute file if uploading file using python SDK
+	if filesResponse, err := createOrUpdateFilesWithGitAtt(ctx, opts); err != nil {
+		handleCreateOrUpdateFileError(ctx, err)
+	} else {
+		ctx.JSON(http.StatusCreated, filesResponse)
+	}
+}
+
 // ChangeFiles handles API call for modifying multiple files
 func ChangeFiles(ctx *context.APIContext) {
 	// swagger:operation POST /repos/{owner}/{repo}/contents repository repoChangeFiles
@@ -784,6 +890,18 @@ func createOrUpdateFiles(ctx *context.APIContext, opts *files_service.ChangeRepo
 	}
 
 	return files_service.ChangeRepoFiles(ctx, ctx.Repo.Repository, ctx.Doer, opts)
+}
+
+// createOrUpdateFilesWithGitAtt Called from both CreateFile or UpdateFile to handle both
+func createOrUpdateFilesWithGitAtt(ctx *context.APIContext, opts *files_service.ChangeRepoFilesOptions) (*api.FilesResponse, error) {
+	if !canWriteFiles(ctx, opts.OldBranch) {
+		return nil, repo_model.ErrUserDoesNotHaveAccessToRepo{
+			UserID:   ctx.Doer.ID,
+			RepoName: ctx.Repo.Repository.LowerName,
+		}
+	}
+
+	return files_service.ChangeRepoFilesWithGitAtt(ctx, ctx.Repo.Repository, ctx.Doer, opts)
 }
 
 // format commit message if empty
