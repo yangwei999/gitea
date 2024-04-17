@@ -638,13 +638,10 @@ func createOrUpdateFileWithGitAtt(t *TemporaryUploadRepository, t2 *TemporaryUpl
 
 		//check if a file is a pointer
 		pointer, err := lfs.ReadPointer(teeReader)
-		if err != nil {
-			return err
-		}
 
 		// If the file is not identified by .gitattribute as lfs file, update .gitattribute file
 		// LFS Pointer files are at most 1024 bytes - so any blob greater than 1024 bytes cannot be an LFS file
-		if pointer.IsValid() && filename2attribute2info[file.Options.treePath] != nil && filename2attribute2info[file.Options.treePath]["filter"] != "lfs" {
+		if err == nil && pointer.IsValid() && filename2attribute2info[file.Options.treePath] != nil && filename2attribute2info[file.Options.treePath]["filter"] != "lfs" {
 			content, err := t2.ModifyAttributeFile(file.TreePath, OldBranch)
 			// Add the object to the database
 			if content != "" {
