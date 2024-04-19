@@ -16,6 +16,7 @@ type CommitContentsResponse struct {
 	LastCommitSHA     string    `json:"last_commit_sha"`
 	LastCommitMessage string    `json:"last_commit_message"`
 	LastCommitCreate  time.Time `json:"last_commit_create"`
+	BranchLastCommit  string    `json:"branch_last_commit"`
 
 	// `type` will be `file`, `dir`, `symlink`, or `submodule`
 	Type  string `json:"type"`
