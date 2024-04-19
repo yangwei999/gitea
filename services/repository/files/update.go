@@ -225,7 +225,7 @@ func ChangeRepoFilesWithGitAtt(ctx context.Context, repo *repo_model.Repository,
 		}
 
 		for _, file := range opts.Files {
-			if err := handleCheckErrors(file, commit, opts, repo); err != nil {
+			if err := SDKhandleCheckErrors(file, commit, opts, repo); err != nil {
 				return nil, err
 			}
 		}
@@ -500,6 +500,96 @@ func ChangeRepoFiles(ctx context.Context, repo *repo_model.Repository, doer *use
 	}
 
 	return filesResponse, nil
+}
+
+// SDKhandleCheckErrors the check for various issues for ChangeRepoFiles
+func SDKhandleCheckErrors(file *ChangeRepoFile, commit *git.Commit, opts *ChangeRepoFilesOptions, repo *repo_model.Repository) error {
+	if file.Operation == "update" || file.Operation == "delete" {
+		fromEntry, err := commit.GetTreeEntryByPath(file.Options.fromTreePath)
+		if err != nil {
+			return err
+		}
+		if file.SHA != "" {
+			// If a SHA was given and the SHA given doesn't match the SHA of the fromTreePath, throw error
+			if file.SHA != fromEntry.ID.String() {
+				return models.ErrSHADoesNotMatch{
+					Path:       file.Options.treePath,
+					GivenSHA:   file.SHA,
+					CurrentSHA: fromEntry.ID.String(),
+				}
+			}
+		} else if opts.LastCommitID != "" {
+			// If a lastCommitID was given and it doesn't match the commitID of the head of the branch throw
+			// an error, but only if we aren't creating a new branch.
+			if commit.ID.String() != opts.LastCommitID && opts.OldBranch == opts.NewBranch {
+				if changed, err := commit.FileChangedSinceCommit(file.Options.treePath, opts.LastCommitID); err != nil {
+					return err
+				} else if changed {
+					return models.ErrCommitIDDoesNotMatch{
+						GivenCommitID:   opts.LastCommitID,
+						CurrentCommitID: opts.LastCommitID,
+					}
+				}
+				// The file wasn't modified, so we are good to delete it
+			}
+		} else {
+			// When updating a file, a lastCommitID or SHA needs to be given to make sure other commits
+			// haven't been made. We throw an error if one wasn't provided.
+			return models.ErrSHAOrCommitIDNotProvided{}
+		}
+		file.Options.executable = fromEntry.IsExecutable()
+	}
+	if file.Operation == "create" || file.Operation == "update" {
+		// For the path where this file will be created/updated, we need to make
+		// sure no parts of the path are existing files or links except for the last
+		// item in the path which is the file name, and that shouldn't exist IF it is
+		// a new file OR is being moved to a new path.
+		treePathParts := strings.Split(file.Options.treePath, "/")
+		subTreePath := ""
+		for index, part := range treePathParts {
+			subTreePath = path.Join(subTreePath, part)
+			entry, err := commit.GetTreeEntryByPath(subTreePath)
+			if err != nil {
+				if git.IsErrNotExist(err) {
+					// Means there is no item with that name, so we're good
+					break
+				}
+				return err
+			}
+			if index < len(treePathParts)-1 {
+				if !entry.IsDir() {
+					return models.ErrFilePathInvalid{
+						Message: fmt.Sprintf("a file exists where you’re trying to create a subdirectory [path: %s]", subTreePath),
+						Path:    subTreePath,
+						Name:    part,
+						Type:    git.EntryModeBlob,
+					}
+				}
+			} else if entry.IsLink() {
+				return models.ErrFilePathInvalid{
+					Message: fmt.Sprintf("a symbolic link exists where you’re trying to create a subdirectory [path: %s]", subTreePath),
+					Path:    subTreePath,
+					Name:    part,
+					Type:    git.EntryModeSymlink,
+				}
+			} else if entry.IsDir() {
+				return models.ErrFilePathInvalid{
+					Message: fmt.Sprintf("a directory exists where you’re trying to create a file [path: %s]", subTreePath),
+					Path:    subTreePath,
+					Name:    part,
+					Type:    git.EntryModeTree,
+				}
+			} else if file.Options.fromTreePath != file.Options.treePath || file.Operation == "create" {
+				//Manually change the user-specified "create" to "update" and continue the upload to
+				//overwrite the original file. If the content of the file remains unchanged between submissions,
+				//no error will be reported, and no new commit record will be added.
+				file.Operation = "update"
+				return nil
+			}
+		}
+	}
+
+	return nil
 }
 
 // handles the check for various issues for ChangeRepoFiles
