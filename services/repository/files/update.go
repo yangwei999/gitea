@@ -744,6 +744,9 @@ func createOrUpdateFileWithGitAtt(t *TemporaryUploadRepository, t2 *TemporaryUpl
 				return err
 			}
 		}
+		_, _ = io.ReadAll(teeReader)
+	} else {
+		_, _ = io.Copy(&buf, treeObjectContentReader)
 	}
 
 	// Add the object to the database
