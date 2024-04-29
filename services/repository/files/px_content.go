@@ -116,12 +116,6 @@ func GetCommitContents(
 		return nil, err
 	}
 
-	// Get the latest commit object for the ref, this avoids the failure of loading model from transformer(python package)
-	branchLastCommit, err := gitRepo.GetBranchCommit(ref)
-	if err != nil {
-		return nil, err
-	}
-
 	commitID := commit.ID.String()
 	if len(ref) >= 4 && strings.HasPrefix(commitID, ref) {
 		ref = commit.ID.String()
@@ -161,9 +155,10 @@ func GetCommitContents(
 		LastCommitSHA:     lastCommit.ID.String(),
 		LastCommitMessage: lastCommit.CommitMessage,
 		LastCommitCreate:  lastCommit.Committer.When,
-		BranchLastCommit:  branchLastCommit.ID.String(),
-		Size:              entry.Size(),
-		URL:               &selfURLString,
+		// Get the latest commit object for the ref, this avoids the failure of loading model from transformer(python package)
+		BranchLastCommit: commitID,
+		Size:             entry.Size(),
+		URL:              &selfURLString,
 		Links: &api.FileLinksResponse{
 			Self: &selfURLString,
 		},
