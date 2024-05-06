@@ -42,6 +42,7 @@ while read oldrev newrev _; do
 		else
 				echo "Sorry, your push was rejected during YAML metadata verification:"
 				echo " - Error: "license" must be one of (${valid_licenses[@]})"
+        echo "license is ${license}"
 				exit 1
 		fi
   fi
